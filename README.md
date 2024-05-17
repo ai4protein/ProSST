@@ -33,7 +33,7 @@ model = AutoModelForMaskedLM.from_pretrianed("AI4Protein/ProSST-2048", trust_rem
 tokenizer = AutoTokenizer.from_pretrained("AI4Protein/ProSST-2048", trust_remote_code=True)
 ```
 
-See [AI4Protein/ProSST-2048](https://huggingface.co/AI4Protein?search_models=ProSST) for more models.
+See [AI4Protein/ProSST-*](https://huggingface.co/AI4Protein?search_models=ProSST) for more models.
 
 ## 4 Zero-shot mutant effect prediction
 
