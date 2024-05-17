@@ -4,7 +4,7 @@ Code for ProSST: A Pre-trained Protein Sequence and Structure Transformer with D
 ## 1 Install
 
 ```shell
-git clone https://github.com/ginnm/DeProt.git
+git clone https://github.com/ginnm/ProSST.git
 cd ProSST
 pip install -r requirements.txt
 export PYTHONPATH=$PYTHONPATH:$(pwd)
@@ -29,9 +29,11 @@ Output:
 ## 3 ProSST models have been uploaded to huggingface 🤗 Transformers
 ```python
 from transformers import AutoModelForMaskedLM, AutoTokenizer
-model = AutoModelForMaskedLM.from_pretrianed("AI4Protein/DeProt-2048", trust_remote_code=True)
-tokenizer = AutoTokenizer.from_pretrained("AI4Protein/DeProt-2048", trust_remote_code=True)
+model = AutoModelForMaskedLM.from_pretrianed("AI4Protein/ProSST-2048", trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained("AI4Protein/ProSST-2048", trust_remote_code=True)
 ```
+
+See [AI4Protein/ProSST-2048](https://huggingface.co/AI4Protein?search_models=ProSST) for more models.
 
 ## 4 Zero-shot mutant effect prediction
 
@@ -48,7 +50,7 @@ unzip proteingym_benchmark.zip
 ```
 
 ```shell
-python zero_shot/proteingym_benchmark.py --model_path AI4Protein/DeProt-2048 \
+python zero_shot/proteingym_benchmark.py --model_path AI4Protein/ProSST-2048 \
 --structure_dir example_data/structure_sequence/2048
 ```
 <!-- 
