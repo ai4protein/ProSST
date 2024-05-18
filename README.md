@@ -69,5 +69,15 @@ python zero_shot/proteingym_benchmark.py --model_path AI4Protein/ProSST-2048 \
 If you use ProSST in your research, please cite the following paper:
 
 ```
-
+@article {Li2024.04.15.589672,
+	author = {Li, Mingchen and Tan, Yang and Ma, Xinzhu and Zhong, Bozitao and Zhou, Ziyi and Yu, Huiqun and Ouyang, Wanli and Hong, Liang and Zhou, Bingxin and Tan, Pan},
+	title = {ProSST: Protein Language Modeling with Quantized Structure and Disentangled Attention},
+	elocation-id = {2024.04.15.589672},
+	year = {2024},
+	doi = {10.1101/2024.04.15.589672},
+	publisher = {Cold Spring Harbor Laboratory},
+	URL = {https://www.biorxiv.org/content/early/2024/05/17/2024.04.15.589672.1},
+	eprint = {https://www.biorxiv.org/content/early/2024/05/17/2024.04.15.589672.1.full.pdf},
+	journal = {bioRxiv}
+}
 ```
