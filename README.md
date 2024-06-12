@@ -29,7 +29,7 @@ Output:
 ## 3 ProSST models have been uploaded to huggingface 🤗 Transformers
 ```python
 from transformers import AutoModelForMaskedLM, AutoTokenizer
-model = AutoModelForMaskedLM.from_pretrianed("AI4Protein/ProSST-2048", trust_remote_code=True)
+model = AutoModelForMaskedLM.from_pretrained("AI4Protein/ProSST-2048", trust_remote_code=True)
 tokenizer = AutoTokenizer.from_pretrained("AI4Protein/ProSST-2048", trust_remote_code=True)
 ```
 
