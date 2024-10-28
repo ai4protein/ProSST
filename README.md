@@ -2,7 +2,7 @@
 Code for ProSST: A Pre-trained Protein Sequence and Structure Transformer with Disentangled Attention.
 
 ## News
-- Our MSA-Enhanced model [ProtREM](https://github.com/tyang816/ProtREM) have achieved 0.518 Spearman's rho in the ProteinGym benchmark.
+- Our MSA-Enhanced model [ProtREM](https://github.com/tyang816/ProtREM) has achieved 0.518 Spearman's rho in the ProteinGym benchmark.
 
 ## 1 Install
 
