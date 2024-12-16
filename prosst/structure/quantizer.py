@@ -18,6 +18,7 @@ from biotite.structure import filter_backbone, get_chains
 from biotite.structure.io import pdb, pdbx
 from biotite.structure.residues import get_residues
 from pathos.threading import ThreadPool
+from .encoder import AutoGraphEncoder
 
 def iter_threading_map(func, data, workers: int = 2):
     pool = ThreadPool(workers)
