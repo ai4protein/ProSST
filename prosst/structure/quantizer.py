@@ -491,10 +491,10 @@ class PdbQuantizer:
         cluster_dir=None,
         cluster_model=None,
         device=None,
-        therads=64,
+        threads=64,
     ) -> None:
         assert structure_vocab_size in [20, 64, 128, 512, 1024, 2048, 4096]
-        self.threads = therads
+        self.threads = threads
         self.max_distance = max_distance
         self.subgraph_depth = subgraph_depth
         self.subgraph_interval = subgraph_interval
