@@ -77,7 +77,6 @@ li2024prosst,
 title={ProSST: Protein Language Modeling with Quantized Structure and Disentangled Attention},
 author={Mingchen Li and Yang Tan and Xinzhu Ma and Bozitao Zhong and Huiqun Yu and Ziyi Zhou and Wanli Ouyang and Bingxin Zhou and Pan Tan and Liang Hong},
 booktitle={The Thirty-eighth Annual Conference on Neural Information Processing Systems},
-year={2024},
-url={https://openreview.net/forum?id=4Z7RZixpJQ}
+year={2024}
 }
 ```
