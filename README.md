@@ -1,5 +1,5 @@
 # ProSST
-Code for ProSST: A Pre-trained Protein Sequence and Structure Transformer with Disentangled Attention.
+Code for ProSST: A Pre-trained Protein Sequence and Structure Transformer with Disentangled Attention. (NeurIPS 2024)
 
 ## News
 - Our MSA-Enhanced model [ProtREM](https://github.com/tyang816/ProtREM) has achieved 0.518 Spearman's rho in the ProteinGym benchmark.
@@ -72,15 +72,12 @@ python zero_shot/proteingym_benchmark.py --model_path AI4Protein/ProSST-2048 \
 If you use ProSST in your research, please cite the following paper:
 
 ```
-@article {Li2024.04.15.589672,
-	author = {Li, Mingchen and Tan, Yang and Ma, Xinzhu and Zhong, Bozitao and Zhou, Ziyi and Yu, Huiqun and Ouyang, Wanli and Hong, Liang and Zhou, Bingxin and Tan, Pan},
-	title = {ProSST: Protein Language Modeling with Quantized Structure and Disentangled Attention},
-	elocation-id = {2024.04.15.589672},
-	year = {2024},
-	doi = {10.1101/2024.04.15.589672},
-	publisher = {Cold Spring Harbor Laboratory},
-	URL = {https://www.biorxiv.org/content/early/2024/05/17/2024.04.15.589672.1},
-	eprint = {https://www.biorxiv.org/content/early/2024/05/17/2024.04.15.589672.1.full.pdf},
-	journal = {bioRxiv}
+@inproceedings{
+li2024prosst,
+title={ProSST: Protein Language Modeling with Quantized Structure and Disentangled Attention},
+author={Mingchen Li and Yang Tan and Xinzhu Ma and Bozitao Zhong and Huiqun Yu and Ziyi Zhou and Wanli Ouyang and Bingxin Zhou and Pan Tan and Liang Hong},
+booktitle={The Thirty-eighth Annual Conference on Neural Information Processing Systems},
+year={2024},
+url={https://openreview.net/forum?id=4Z7RZixpJQ}
 }
 ```
