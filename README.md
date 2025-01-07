@@ -1,5 +1,5 @@
-# ProSST
-Code for ProSST: A Pre-trained Protein Sequence and Structure Transformer with Disentangled Attention. (NeurIPS 2024)
+# Venus-ProSST
+Code for _ProSST: A Pre-trained Protein Sequence and Structure Transformer with Disentangled Attention._ (NeurIPS 2024)
 
 ## News
 - Our MSA-Enhanced model [ProtREM](https://github.com/tyang816/ProtREM) has achieved 0.518 Spearman's rho in the ProteinGym benchmark.
