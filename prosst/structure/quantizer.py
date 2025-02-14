@@ -17,7 +17,7 @@ from biotite.sequence import ProteinSequence
 from biotite.structure import filter_backbone, get_chains
 from biotite.structure.io import pdb, pdbx
 from biotite.structure.residues import get_residues
-from ProSST.prosst.structure.encoder import AutoGraphEncoder
+from .encoder import AutoGraphEncoder
 
 
 def _normalize(tensor, dim=-1):
