@@ -17,16 +17,7 @@ from biotite.sequence import ProteinSequence
 from biotite.structure import filter_backbone, get_chains
 from biotite.structure.io import pdb, pdbx
 from biotite.structure.residues import get_residues
-from pathos.threading import ThreadPool
-from .encoder import AutoGraphEncoder
-
-def iter_threading_map(func, data, workers: int = 2):
-    pool = ThreadPool(workers)
-    return pool.imap(func, data)
-
-def threading_map(func, data, workers: int = 2):
-    pool = ThreadPool(workers)
-    return pool.map(func, data)
+from ProSST.prosst.structure.encoder import AutoGraphEncoder
 
 
 def _normalize(tensor, dim=-1):
@@ -167,6 +158,51 @@ def generate_graph(pdb_file, max_distance=10):
     return data
 
 
+def get_atom_coords_residuewise(atoms: List[str], struct: biotite.structure.AtomArray):
+    """
+    Example for atoms argument: ["N", "CA", "C"]
+    """
+
+    def filterfn(s, axis=None):
+        filters = np.stack([s.atom_name == name for name in atoms], axis=1)
+        sum = filters.sum(0)
+        if not np.all(sum <= np.ones(filters.shape[1])):
+            raise RuntimeError("structure has multiple atoms with same name")
+        index = filters.argmax(0)
+        coords = s[index].coord
+        coords[sum == 0] = float("nan")
+        return coords
+
+    return biotite.structure.apply_residue_wise(struct, struct, filterfn)
+
+
+def extract_coords_from_structure(structure: biotite.structure.AtomArray):
+    """
+    Args:
+        structure: An instance of biotite AtomArray
+    Returns:
+        Tuple (coords, seq)
+            - coords is an L x 3 x 3 array for N, CA, C coordinates
+            - seq is the extracted sequence
+    """
+    coords = get_atom_coords_residuewise(["N", "CA", "C"], structure)
+    residue_identities = get_residues(structure)[1]
+    seq = "".join([ProteinSequence.convert_letter_3to1(r) for r in residue_identities])
+    return coords
+
+def extract_seq_from_pdb(pdb_file, chain=None):
+    """
+    Args:
+        structure: An instance of biotite AtomArray
+    Returns:
+        - seq is the extracted sequence
+    """
+    structure = load_structure(pdb_file, chain)
+    residue_identities = get_residues(structure)[1]
+    seq = "".join([ProteinSequence.convert_letter_3to1(r) for r in residue_identities])
+    return seq
+
+
 def generate_pos_subgraph(
     graph_data,
     subgraph_depth=None,
@@ -174,69 +210,98 @@ def generate_pos_subgraph(
     max_distance=10,
     anchor_nodes=None,
     pure_subgraph=False,
+    device="cuda" if torch.cuda.is_available() else "cpu"
 ):
+
+    # move graph_data to GPU
+    graph_data = Data(
+        node_s=graph_data.node_s.to(device) if torch.is_tensor(graph_data.node_s) else torch.tensor(graph_data.node_s, device=device),
+        node_v=graph_data.node_v.to(device) if torch.is_tensor(graph_data.node_v) else torch.tensor(graph_data.node_v, device=device),
+        edge_index=graph_data.edge_index.to(device) if torch.is_tensor(graph_data.edge_index) else torch.tensor(graph_data.edge_index, device=device),
+        edge_s=graph_data.edge_s.to(device) if torch.is_tensor(graph_data.edge_s) else torch.tensor(graph_data.edge_s, device=device),
+        edge_v=graph_data.edge_v.to(device) if torch.is_tensor(graph_data.edge_v) else torch.tensor(graph_data.edge_v, device=device),
+        distances=graph_data.distances.to(device) if torch.is_tensor(graph_data.distances) else torch.tensor(graph_data.distances, device=device),
+        aa_seq=graph_data.aa_seq
+    )
+
     distances = graph_data.distances
-    subgraph_dict = {}
     if subgraph_depth is None:
         subgraph_depth = 50
-    sorted_indices = np.argsort(distances, axis=1)[:, :50]
-    mask = distances[np.arange(distances.shape[0])[:, None], sorted_indices] < 10
-    nearest_indices = np.where(mask, sorted_indices, -1)
 
-    def quick_get_anchor_graph(anchor_node):
-        k_neighbors_indices = nearest_indices[anchor_node][
-            nearest_indices[anchor_node] != -1
-        ]
-        if len(k_neighbors_indices) > 30:
-            k_neighbors_indices = k_neighbors_indices[:40]
-        k_neighbors_indices = np.array(sorted(k_neighbors_indices.tolist()))
-        sub_matrix = distances[k_neighbors_indices][:, k_neighbors_indices]
-        sub_edge_index = np.transpose(np.nonzero(sub_matrix < max_distance))
+    # Calculate anchor nodes if not provided
+    if anchor_nodes is None:
+        anchor_nodes = list(range(0, len(graph_data.aa_seq), subgraph_interval))
+    anchor_nodes_tensor = torch.tensor(anchor_nodes, device=device)  # Move anchor nodes to device
 
-        mask = sub_edge_index[:, 0] != sub_edge_index[:, 1]
-        sub_edge_index = sub_edge_index[mask]
-        original_edge_index = k_neighbors_indices[sub_edge_index]
-        matches = np.all(
-            np.transpose(graph_data.edge_index.numpy())[:, None] == original_edge_index,
-            axis=2,
-        )
-        edge_to_feature_idx = np.nonzero(matches.any(axis=1))[0]
+    # Get the k nearest neighbors for ALL anchor nodes (batched)
+    k = 50
+    nearest_indices = torch.argsort(distances, dim=1)[:, :k]  # (num_nodes, k)
+    distance_mask = torch.gather(distances, 1, nearest_indices) < max_distance  # (num_nodes, k)
+    nearest_indices = torch.where(distance_mask, nearest_indices, torch.tensor(-1, device=device))  # (num_nodes, k)
 
-        new_node_s = graph_data.node_s[k_neighbors_indices]
-        new_node_v = graph_data.node_v[k_neighbors_indices]
-        new_edge_s = graph_data.edge_s[edge_to_feature_idx]
-        new_edge_v = graph_data.edge_v[edge_to_feature_idx]
+    subgraph_dict = {}
 
-        if pure_subgraph:
-            return Data(
-                edge_index=torch.tensor(sub_edge_index).T,
-                edge_s=new_edge_s,
-                edge_v=new_edge_v,
-                node_s=new_node_s,
-                node_v=new_node_v,
+    for anchor_node in anchor_nodes: #Reverted back to for loop to ensure everything works with batches
+        try:
+
+            #Get neighbors for each anchornode
+            k_neighbors = nearest_indices[anchor_node]
+            k_neighbors = k_neighbors[k_neighbors != -1]
+
+            if len(k_neighbors) == 0:  # Skip if no neighbors found
+                    continue
+
+            if len(k_neighbors) > 30:
+                k_neighbors = k_neighbors[:40]
+
+            k_neighbors, _ = torch.sort(k_neighbors)
+
+            sub_matrix = distances.index_select(0, k_neighbors).index_select(1, k_neighbors)
+
+            # Create edge indices efficiently
+            sub_edges = torch.nonzero(sub_matrix < max_distance, as_tuple=False)
+            mask = sub_edges[:, 0] != sub_edges[:, 1]
+            sub_edge_index = sub_edges[mask]
+
+            if len(sub_edge_index) == 0:  # Skip if no edges found
+                continue
+            # Move edge_index to GPU only when needed
+            edge_index_device = graph_data.edge_index.to(device)
+            original_edge_index = k_neighbors[sub_edge_index]
+
+            # More memory efficient edge matching
+            matches = []
+            for edge in original_edge_index:
+                match = (edge_index_device[0] == edge[0]) & (edge_index_device[1] == edge[1])
+                matches.append(match)
+            matches = torch.stack(matches)
+            edge_to_feature_idx = torch.nonzero(matches, as_tuple=True)[0].to(device)
+            if len(edge_to_feature_idx) == 0:  # Skip if no matching edges
+                continue
+            #Create data
+            new_node_s = graph_data.node_s[k_neighbors].to(device)
+            new_node_v = graph_data.node_v[k_neighbors].to(device)
+            new_edge_s = graph_data.edge_s[edge_to_feature_idx].to(device)
+            new_edge_v = graph_data.edge_v[edge_to_feature_idx].to(device)
+
+            result = Data(
+                edge_index=sub_edge_index.T.to(device),
+                edge_s=new_edge_s.to(device),
+                edge_v=new_edge_v.to(device),
+                node_s=new_node_s.to(device),
+                node_v=new_node_v.to(device),
             )
-        else:
-            new_index_mapping = {
-                int(old_id): new_id for new_id, old_id in enumerate(k_neighbors_indices)
-            }
-            return Data(
-                index_map=new_index_mapping,
-                edge_index=torch.tensor(sub_edge_index).T,
-                edge_s=new_edge_s,
-                edge_v=new_edge_v,
-                node_s=new_node_s,
-                node_v=new_node_v,
-            )
-    
-    bar = tqdm(list(range(len(graph_data.aa_seq))), desc="Generating subgraphs")
-    for anchor_node in bar:
-        bar.set_postfix_str(f"Anchor node: {anchor_node}")
-        if anchor_node % subgraph_interval != 0:
-            continue
-        subgraph_dict[anchor_node] = quick_get_anchor_graph(anchor_node)
-        
+            if not pure_subgraph:
+                result.index_map = {
+                int(old_id.to(device).item()): new_id
+                for new_id, old_id in enumerate(k_neighbors)
+                }
+            subgraph_dict[anchor_node] = result
+        except Exception as e:
+             print(f"Error processing anchor node {anchor_node}: {str(e)}")
+             continue
+
     return subgraph_dict
-
 
 def load_structure(fpath, chain=None):
     """
@@ -329,31 +394,32 @@ def convert_graph(graph):
     )
     return graph
 
-
-def predict_sturcture(model, cluster_models, dataloader, device):
+def predict_structure(model, cluster_models, dataloader, datalabels, device):
     epoch_iterator = dataloader
     struc_label_dict = {}
     cluster_model_dict = {}
 
     for cluster_model_path in cluster_models:
         cluster_model_name = cluster_model_path.split("/")[-1].split(".")[0]
-        struc_label_dict[cluster_model_name] = []
+        struc_label_dict[cluster_model_name] = {}
         cluster_model_dict[cluster_model_name] = joblib.load(cluster_model_path)
 
     with torch.no_grad():
-        for batch in epoch_iterator:
+        for batch, label_dict in zip(epoch_iterator, datalabels):
             batch.to(device)
             h_V = (batch.node_s, batch.node_v)
             h_E = (batch.edge_s, batch.edge_v)
 
             node_emebddings = model.get_embedding(h_V, batch.edge_index, h_E)
-            graph_emebddings = scatter_mean(node_emebddings, batch.batch, dim=0).cpu()
+            graph_emebddings = scatter_mean(node_emebddings, batch.batch, dim=0).to(device)
             norm_graph_emebddings = F.normalize(graph_emebddings, p=2, dim=1)
+            struc_label_dict[cluster_model_name][label_dict['name']]={}
             for name, cluster_model in cluster_model_dict.items():
                 batch_structure_labels = cluster_model.predict(
-                    norm_graph_emebddings
+                    norm_graph_emebddings.cpu()
                 ).tolist()
-                struc_label_dict[name].extend(batch_structure_labels)
+                struc_label_dict[name][label_dict['name']]['seq']=label_dict['aa_seq']
+                struc_label_dict[name][label_dict['name']]['struct']=batch_structure_labels
 
     return struc_label_dict
 
@@ -381,17 +447,16 @@ def get_embeds(model, dataloader, device, pooling="mean"):
     norm_embeds = F.normalize(embeds, p=2, dim=1)
     return norm_embeds
 
-
 def process_pdb_file(
     pdb_file,
     subgraph_depth,
     subgraph_interval,
     max_distance,
-    threads=64,
+    device="cuda" if torch.cuda.is_available() else "cpu"
 ):
     result_dict, subgraph_dict = {}, {}
     result_dict["name"] = Path(pdb_file).name
-    # build graph, maybe lack of some atoms
+    
     try:
         graph = generate_graph(pdb_file, max_distance)
     except Exception as e:
@@ -399,65 +464,66 @@ def process_pdb_file(
         result_dict["error"] = str(e)
         return None, result_dict, 0
 
-    # multi thread for subgraph
     result_dict["aa_seq"] = graph.aa_seq
-    anchor_nodes = list(range(0, len(graph.node_s), subgraph_interval))
-
-    def process_subgraph(anchor_node):
-        subgraph = generate_pos_subgraph(
+    anchor_nodes = list(range(0, len(graph.node_s), subgraph_interval)) #Define anchor nodes
+    try: #Run subgraph generation
+        subgraph_dict = generate_pos_subgraph(
             graph,
             subgraph_depth,
             subgraph_interval,
             max_distance,
-            anchor_node,
+            anchor_nodes=anchor_nodes,
             pure_subgraph=True,
-        )[anchor_node]
-        subgraph = convert_graph(subgraph)
-        return anchor_node, subgraph
-    
-    processed_anchor_nodes = tqdm(iter_threading_map(process_subgraph, anchor_nodes, threads))
-    for anchor, subgraph in processed_anchor_nodes:
-        subgraph_dict[anchor] = subgraph
-    
-    # for anchor_node in tqdm(anchor_nodes):
-    #     anchor, subgraph = process_subgraph(anchor_node)
-    #     subgraph_dict[anchor] = subgraph
+            device=device
+        )
+        #Move all subgraphs to GPU
+        for key in subgraph_dict.keys():
+            subgraph_dict[key] = convert_graph(subgraph_dict[key])
+    except Exception as e:
+        print(f"Error processing subgraph {e}")
+        return None, result_dict, 0
+
 
     subgraph_dict = dict(sorted(subgraph_dict.items(), key=lambda x: x[0]))
     subgraphs = list(subgraph_dict.values())
     return subgraphs, result_dict, len(anchor_nodes)
 
 
-def pdb_conventer(
+def pdb_converter(
     pdb_files,
     subgraph_depth,
     subgraph_interval,
     max_distance,
-    threads=64,
+    device="cuda" if torch.cuda.is_available() else "cpu",
+    batch_size=32 
 ):
     error_proteins, error_messages = [], []
     dataset, results, node_counts = [], [], []
 
-    for pdb_file in pdb_files:
-        pdb_subgraphs, result_dict, node_count = process_pdb_file(
-            pdb_file,
-            subgraph_depth,
-            subgraph_interval,
-            max_distance,
-            threads=threads,
-        )
+    for i in tqdm(range(0, len(pdb_files), batch_size), desc="Processing PDB files"):
+        batch = pdb_files[i:i + batch_size]
 
-        if pdb_subgraphs is None:
-            error_proteins.append(result_dict["name"])
-            error_messages.append(result_dict["error"])
-            continue
-        dataset.append(pdb_subgraphs)
-        results.append(result_dict)
-        node_counts.append(node_count)
+        for pdb_file in batch:
+            pdb_subgraphs, result_dict, node_count = process_pdb_file(
+                pdb_file,
+                subgraph_depth,
+                subgraph_interval,
+                max_distance,
+                device=device
+            )
 
-    # save the error file
+            if pdb_subgraphs is None:
+                error_proteins.append(result_dict["name"])
+                error_messages.append(result_dict["error"])
+                continue
+            dataset.append(pdb_subgraphs)
+            results.append(result_dict)
+            node_counts.append(node_count)
+
     if error_proteins:
-        print("Error proteins: ", error_proteins)
+        print(f"Found {len(error_proteins)} errors:")
+        for name, msg in zip(error_proteins, error_messages):
+            print(f"{name}: {msg}")
 
     def collate_fn(batch):
         batch_graphs = []
@@ -469,11 +535,7 @@ def pdb_conventer(
 
     def data_loader():
         for item in dataset:
-            yield collate_fn(
-                [
-                    item,
-                ]
-            )
+            yield collate_fn([item])
 
     return data_loader(), results
 
@@ -491,10 +553,10 @@ class PdbQuantizer:
         cluster_dir=None,
         cluster_model=None,
         device=None,
-        threads=64,
+        batch_size=16,
     ) -> None:
         assert structure_vocab_size in [20, 64, 128, 512, 1024, 2048, 4096]
-        self.threads = threads
+        self.batch_size = batch_size
         self.max_distance = max_distance
         self.subgraph_depth = subgraph_depth
         self.subgraph_interval = subgraph_interval
@@ -537,22 +599,27 @@ class PdbQuantizer:
             os.path.join(self.cluster_dir, m) for m in self.cluster_model
         ]
 
-    def __call__(self, pdb_file, return_residue_seq=False):
-        data_loader, results = pdb_conventer(
-            [
-                pdb_file,
-            ],
+    def __call__(self, pdb_files, return_residue_seq=False):
+        if isinstance(pdb_files, str):
+            pdb_files = [pdb_files]
+        elif isinstance(pdb_files, list):
+            pass
+        else:
+            raise ValueError("pdb_files should be either a string or a list of strings")
+        data_loader, results = pdb_converter(
+            pdb_files,
             self.subgraph_depth,
             self.subgraph_interval,
             self.max_distance,
-            threads=self.threads,
+            device=self.device,
+            batch_size=self.batch_size
         )
-        sturctures = predict_sturcture(
-            self.model, self.cluster_models, data_loader, self.device
+        structures = predict_structure(
+            self.model, self.cluster_models, data_loader, results, self.device
         )
-        for _, structure_labels in sturctures.items():
-            if return_residue_seq:
-                return results[0]["aa_seq"], structure_labels
-            else:
-                return structure_labels
+        if not return_residue_seq:
+            for clusterModelLabels in structures.keys():
+                for structureDict in structures[clusterModelLabels].keys():
+                    structures[clusterModelLabels][structureDict].pop('seq', None)
+        return structures
 
