@@ -1,15 +1,10 @@
-import json
 import random
 import torch
-import math
 import os
 import biotite
 import torch
-import torch_geometric
-import torch_cluster
 import numpy as np
 import torch.utils.data as data
-import torch.nn.functional as F
 from torch_geometric.data import Data, Batch
 from tqdm import tqdm
 from typing import List
@@ -106,68 +101,6 @@ def convert_graph(graph):
     return graph
 
 
-
-def prepare_test_dataset(gvp_graph_dir, gvp_subgraph_dir, test_num=None):
-    parent_graphs_all = sorted(os.listdir(gvp_subgraph_dir))
-    parent_graphs_all.remove('train.pt')
-    parent_graphs_all.remove('valid.pt')
-    parent_graphs_all.remove('test.pt')
-    parent_graphs = parent_graphs_all[:test_num] if test_num else parent_graphs_all
-    
-    data_list = []
-    for parent in tqdm(parent_graphs):
-        current_subgraph_dir = os.path.join(gvp_subgraph_dir, parent)
-        subgraphs = os.listdir(current_subgraph_dir)
-        for subgraph in subgraphs:
-            subgraph = torch.load(os.path.join(current_subgraph_dir, subgraph))
-            if random.random() <= 0.5:
-                parent = random.choice(parent_graphs_all)
-                parentgraph = torch.load(os.path.join(gvp_graph_dir, parent + '.pt'))
-                data_list.append((parentgraph, subgraph, 0))
-            else:
-                parentgraph = torch.load(os.path.join(gvp_graph_dir, parent + '.pt'))
-                data_list.append((parentgraph, subgraph, 1))
-    return data_list
-
-def prepare_pair_dataset(gvp_graph_dir, gvp_subgraph_dir):
-    train_file = os.path.join(gvp_subgraph_dir, 'train.pt')
-    if not os.path.exists(train_file):
-        data_list = []
-        parent_graphs = os.listdir(gvp_graph_dir)
-        for parent_graph in tqdm(parent_graphs):
-            parent_graph_name = parent_graph[:-3]
-            graph = torch.load(os.path.join(gvp_graph_dir, parent_graph))
-            subgraphs = os.listdir(os.path.join(gvp_subgraph_dir, parent_graph_name))
-            for subgraph in subgraphs:
-                subgraph = torch.load(os.path.join(gvp_subgraph_dir, parent_graph_name, subgraph))
-                data_list.append((graph, subgraph, 1))
-        pos_pair_num = len(data_list)
-        neg_graph_indexes = [random.randint(0, pos_pair_num - 1) for _ in range(pos_pair_num)]
-        neg_subgraph_indexes = [random.randint(0, pos_pair_num - 1) for _ in range(pos_pair_num)]
-        for neg_graph_index, neg_subgraph_index in tqdm(zip(neg_graph_indexes, neg_subgraph_indexes)):
-            # 10% switch the parent and subgraph
-            if random.random() < 0.1:
-                data_list.append((data_list[neg_graph_index][1], data_list[neg_graph_index][0], 0))
-            # 90% random select a parent and a subgraph
-            else:
-                data_list.append((data_list[neg_graph_index][0], data_list[neg_subgraph_index][1], 0))
-        random.shuffle(data_list)
-        train_num = int(len(data_list) * 0.8)
-        valid_num = int(len(data_list) * 0.1)
-        train_data_list = data_list[:train_num]
-        valid_data_list = data_list[train_num:train_num + valid_num]
-        test_data_list = data_list[train_num + valid_num:]
-        torch.save(train_data_list, train_file)
-        torch.save(valid_data_list, os.path.join(gvp_subgraph_dir, 'valid.pt'))
-        torch.save(test_data_list, os.path.join(gvp_subgraph_dir, 'test.pt'))
-    else:
-        train_data_list = torch.load(train_file)
-        valid_data_list = torch.load(os.path.join(gvp_subgraph_dir, 'valid.pt'))
-        test_data_list = torch.load(os.path.join(gvp_subgraph_dir, 'test.pt'))
-    # return train_data_list[:10000], valid_data_list[:10000], test_data_list[2000:3000]
-    return train_data_list, valid_data_list, test_data_list
-
-
 def collate_fn(batch):
     data_list_1 = []
     data_list_2 = []
@@ -182,41 +115,6 @@ def collate_fn(batch):
     batch_2 = Batch.from_data_list(data_list_2)
     labels = torch.tensor(labels, dtype=torch.float)
     return (batch_1, batch_2, labels)
-
-class PairProteinGraphDataset(data.Dataset):
-    '''
-    args:
-        data_list: list of (Data, Data, label)
-    '''
-    def __init__(self, data_list):
-        super(PairProteinGraphDataset, self).__init__()
-        
-        self.data_list = data_list
-        self.node_counts = [len(e[0]['node_s']) + len(e[1]['node_s']) for e in data_list]
-        
-    def __len__(self):
-        return len(self.data_list)
-    
-    def __getitem__(self, i):
-        parent_graph = self.data_list[i][0]
-        # RuntimeError: "LayerNormKernelImpl" not implemented for 'Long'
-        parent_graph = Data(
-            node_s=torch.as_tensor(parent_graph.node_s, dtype=torch.float32), 
-            node_v=torch.as_tensor(parent_graph.node_v, dtype=torch.float32),
-            edge_index=parent_graph.edge_index, 
-            edge_s=torch.as_tensor(parent_graph.edge_s, dtype=torch.float32),
-            edge_v=torch.as_tensor(parent_graph.edge_v, dtype=torch.float32)
-            )
-        subgraph = self.data_list[i][1]
-        subgraph = Data(
-            node_s=torch.as_tensor(subgraph.node_s, dtype=torch.float32), 
-            node_v=torch.as_tensor(subgraph.node_v, dtype=torch.float32),
-            edge_index=subgraph.edge_index, 
-            edge_s=torch.as_tensor(subgraph.edge_s, dtype=torch.float32),
-            edge_v=torch.as_tensor(subgraph.edge_v, dtype=torch.float32)
-            )
-        label = self.data_list[i][2]
-        return (parent_graph, subgraph, label)
 
 
 class ProteinGraphDataset(data.Dataset):
