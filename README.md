@@ -21,7 +21,7 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 ```python
 from prosst.structure.get_sst_seq import SSTPredictor
 predictor = SSTPredictor(structure_vocab_size=2048) # can be 20, 128, 512, 1024, 2048, 4096
-result = processor("example_data/p1.pdb", return_residue_seq=False)
+result = predictor.predict_from_pdb('example_data/p1.pdb')
 ```
 
 Output:
