@@ -2,6 +2,7 @@
 Code for _ProSST: A Pre-trained Protein Sequence and Structure Transformer with Disentangled Attention._ (NeurIPS 2024)
 
 ## News
+- [2026.09.30] VenusREM2 achieves **0.556** on ProteinGym substitution leaderboard by [VenusREM-Harness](https://github.com/ai4protein/VenusREM-Harness). Plz see [technical report](https://arxiv.org/abs/2609.34654).
 - ProSST has been integrated into [VenusFactory2](https://github.com/ai4protein/VenusFactory2). Welcome to use it! Here is the [web server](https://venusfactory.bio/) and [technical report](https://arxiv.org/abs/2603.27303).
 - Our MSA-Enhanced model [VenusREM](https://github.com/ai4protein/VenusREM) has achieved 0.518 Spearman's rho in the ProteinGym benchmark.
 
